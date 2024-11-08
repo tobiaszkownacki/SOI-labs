@@ -24,7 +24,7 @@ Funkcja countChildrenAtLevels będzie funkcją rekurencyjną. Jako argument będ
 
 1. Zadanie 1
 
-Testująca funkcja będzie przyjmować dodatkowy jeden argument, nazwijmy go x. W funkcji stworzę 2 procesy potomne nazwijmy je dziecko_1 i dziecko_2. Dziecko_1 stworzy kolejne 2*x dzieci. Natomiast dziecko_2 stworzy x dzieci, a następnie każde dziecko stworzy kolejne x dzieci. W ten sposób dziecko_1 będzie miał ogólnie 2*x potomków a dziecko_2 x+x^2. Jeżeli algorytm wchodzenia w głąb działa to powinien zwrócić x+x^2, a jeśli nie działa i liczy tylko pierwsze pokolenie to 2*x.   
+Testująca funkcja będzie przyjmować dodatkowy jeden argument, nazwijmy go x. W funkcji stworzę 2 procesy potomne nazwijmy je dziecko_1 i dziecko_2. Dziecko_1 stworzy kolejne 2*x dzieci. Natomiast dziecko_2 stworzy x dzieci, a następnie każde dziecko stworzy kolejne x dzieci. W ten sposób dziecko_1 będzie miał ogólnie 2*x potomków a dziecko_2 x+x^2. Funkcja na samym początku wypisuję aktualną liczbę procesów na podstawie funkcji a następnie wypisuję wszystkie procesy czyli sume (aktualne+2+2*x+x+x^2)
 
 2. Zadanie 2
 Testująca funkcja będzie przyjmować tylko argumenty z zadania. W funkcji stworzę taki schemat procesów jak widać poniżej:
@@ -36,15 +36,23 @@ rodzic
 │        ├── prawnuk_2   
 │        ├── prawnuk_3   
 │        ├── prawnuk_4   
-│        └── prawnuk_5   
+│        ├── prawnuk_5   
+│        ├── prawnuk_6
+│        ├── prawnuk_7   
+|        └── prawnuk_8
 └── dziecko_2   
     ├── wnuk_2   
     │   ├── prawnuk_2_1   
     │   ├── prawnuk_2_2   
-    │   └── prawnuk_2_3   
+    │   ├── prawnuk_2_3
+    |   ├── prawnuk_2_4   
+    |   └── prawnuk_2_5
     └── wnuk_3   
-        ├── prawnuk_3_1   
-        ├── prawnuk_3_2   
-        └── prawnuk_3_3   
+    │   ├── prawnuk_3_1   
+    │   ├── prawnuk_3_2   
+    │   ├── prawnuk_3_3
+    |   ├── prawnuk_3_4   
+    |   └── prawnuk_3_4   
 
-Dla N = 1, funkcja powinna zwrócić 5 i pid wnuka_1 bo wnuk_1 ma 5 potomków na 1 pokoleniu w dół. Dla N = 2, funkcja powinna zwrócić 8 i pid dziecka_2, bo ma 2 potomków w pierwszym pokoleniu i 6 w drugim co daje w sumie 8. Dla N = 3 powinna zwrócić 16 i pid rodzica.
+Minix na samym rozpoczęciu systemu ma 7 procesów, także dałem dużo nowych procesów aby być pewnym, że funkcja zwróciła pid nowego procesu a nie systemowego minixa.
+Dla N = 1, funkcja powinna zwrócić 8 i pid wnuka_1 bo wnuk_1 ma 8 potomków na 1 pokoleniu w dół. Dla N = 2, funkcja powinna zwrócić 12 i pid dziecka_2, bo ma 2 potomków w pierwszym pokoleniu i 8 w drugim co daje w sumie 8. Dla N = 3 powinna zwrócić 23 i pid rodzica.
