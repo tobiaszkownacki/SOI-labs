@@ -86,6 +86,10 @@ int countChildrenAtLevels(int proc_nr, int N)
 {
 	int children = 0;
 	int i = 0;
+	if(N < 0)
+	{
+		return 0;
+	}
 	for(i = 0; i < NR_PROCS; ++i)
 	{
 		if((mproc[i].mp_flags & IN_USE) && proc_nr != i && mproc[i].mp_parent == proc_nr)

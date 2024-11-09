@@ -24,7 +24,7 @@ Funkcja countChildrenAtLevels będzie funkcją rekurencyjną. Jako argument będ
 
 1. Zadanie 1
 
-Testująca funkcja będzie przyjmować dodatkowy jeden argument, nazwijmy go x. W funkcji stworzę 2 procesy potomne nazwijmy je dziecko_1 i dziecko_2. Dziecko_1 stworzy kolejne 2*x dzieci. Natomiast dziecko_2 stworzy x dzieci, a następnie każde dziecko stworzy kolejne x dzieci. W ten sposób dziecko_1 będzie miał ogólnie 2*x potomków a dziecko_2 x+x^2. Funkcja na samym początku wypisuję aktualną liczbę procesów na podstawie funkcji a następnie wypisuję wszystkie procesy czyli sume (aktualne+2+2*x+x+x^2)
+Testująca funkcja będzie przyjmować dodatkowy jeden argument, nazwijmy go x. W funkcji stworzę 2 procesy potomne nazwijmy je dziecko_1 i dziecko_2. Dziecko_1 stworzy kolejne 2*x dzieci. Natomiast dziecko_2 stworzy x dzieci, a następnie każde dziecko stworzy kolejne x dzieci. W ten sposób dziecko_1 będzie miał ogólnie 2*x potomków a dziecko_2 x+x^2. Funkcja na samym początku wypisuję aktualną liczbę procesów na podstawie funkcji a następnie wypisuję wszystkie procesy czyli sume (aktualne+2+2*x+x+x^2).
 
 2. Zadanie 2
 Testująca funkcja będzie przyjmować tylko argumenty z zadania. W funkcji stworzę taki schemat procesów jak widać poniżej:
