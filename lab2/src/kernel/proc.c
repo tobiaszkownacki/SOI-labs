@@ -437,13 +437,13 @@ PRIVATE void sched()
  * process is runnable, put the current process on the end of the user queue,
  * possibly promoting another user to head of the queue.
  */
-  int group;
-  struct proc * prev_node;
-  struct proc * node;
+  int current_group;
+  struct proc * new_head;
+  struct proc * before_new_head;
 
   if (rdy_head[USER_Q] == NIL_PROC) return;
 
-  group = rdy_head[USER_Q]->group;
+  current_group = rdy_head[USER_Q]->group;
 
   /* One or more user processes queued. */
   rdy_tail[USER_Q]->p_nextready = rdy_head[USER_Q];
@@ -451,30 +451,31 @@ PRIVATE void sched()
   rdy_head[USER_Q] = rdy_head[USER_Q]->p_nextready;
   rdy_tail[USER_Q]->p_nextready = NIL_PROC;
 
-  do
+  current_group = (current_group + 1) % 3;
+
+  while(rdy_head[USER_Q]->group != current_group)
   {
-    group = (group + 1) % 3;
-    if(rdy_head[USER_Q]->group != group)
+    before_new_head = rdy_head[USER_Q];
+    while(before_new_head->p_nextready->group != current_group && before_new_head->p_nextready != NULL)
     {
-      prev_node = rdy_head[USER_Q];
-      while(prev_node->p_nextready != NULL && prev_node->p_nextready->group != group)
-      {
-        prev_node = prev_node->p_nextready;
-      }
-      if(prev_node->p_nextready != NULL)
-      {
-        node = prev_node->p_nextready;
-        prev_node->p_nextready = node->p_nextready;
-        if(rdy_tail[USER_Q] == node)
-        {
-          rdy_tail[USER_Q] = prev_node;
-        }
-        node->p_nextready = rdy_head[USER_Q];
-        rdy_head[USER_Q] = node;
-      }
+      before_new_head = before_new_head->p_nextready;
+    }
+    if(before_new_head->p_nextready == NULL)
+    {
+      current_group = (current_group + 1) % 3;
+      continue;
     }
 
-  }while(rdy_head[USER_Q]->group != group);
+    new_head = before_new_head->p_nextready;
+    before_new_head->p_nextready = new_head->p_nextready;
+    if(rdy_tail[USER_Q] == new_head)
+    {
+      rdy_tail[USER_Q] = before_new_head;
+    }
+    new_head->p_nextready = rdy_head[USER_Q];
+    rdy_head[USER_Q] = new_head;
+
+  }
 
   pick_proc();
 }

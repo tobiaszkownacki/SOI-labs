@@ -197,8 +197,10 @@ struct proc * findProcDescriptor(int pid)
   struct proc *rp;
   for(rp = BEG_PROC_ADDR; rp < END_PROC_ADDR; ++rp)
   {
-    if(rp->p_priority != PPRI_NONE && rp->p_pid != 0 && rp->p_pid == pid)
+    if(rp->p_priority != PPRI_NONE && rp->p_pid == pid && rp->p_pid != 0)
+    {
       return rp;
+    }
   }
   return NULL;
 }
