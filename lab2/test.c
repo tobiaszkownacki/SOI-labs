@@ -14,30 +14,61 @@ int setProcGroup(int pid, int group)
 
 int main(int argc, char ** argv)
 {
-    int myGroup = 0;
-    int myPid;
+    int a_procs, b_procs, c_procs;
+    int pid;
     int result;
-    unsigned int i, j;
+    int i;
 
-    if(argc < 2)
+    if(argc != 4)
     {
-        printf("Zla liczba argumentow\n");
+        printf("Wrong number of arguments\n");
         return -1;
     }
 
-    myGroup = atoi(argv[1]);
-    if(myGroup < 0 || myGroup > 2)
+    a_procs = atoi(argv[1]);
+    b_procs = atoi(argv[2]);
+    c_procs = atoi(argv[3]);
+
+    for(i = 0; i < a_procs; ++i)
     {
-        printf("Zly numer grupy\n");
-        return -1;
+        if(fork() == 0)
+        {
+            pid = getpid();
+            result = setProcGroup(pid, 0);
+            if(result != 0)
+            {
+                printf("Error setting group for process %d\n", pid);
+            }
+            while(1);
+        }
     }
-    myPid = getpid();
 
-    result = setProcGroup(myPid, myGroup);
-    printf("Wynik: %d\n", result);
+    for(i = 0; i < b_procs; ++i)
+    {
+        if(fork() == 0)
+        {
+            pid = getpid();
+            result = setProcGroup(pid, 1);
+            if(result != 0)
+            {
+                printf("Error setting group for process %d\n", pid);
+            }
+            while(1);
+        }
+    }
 
-    while(1);
-
-    printf("Koniec\n");
-
+    for(i = 0; i < c_procs; ++i)
+    {
+        if(fork() == 0)
+        {
+            pid = getpid();
+            result = setProcGroup(pid, 2);
+            if(result != 0)
+            {
+                printf("Error setting group for process %d\n", pid);
+            }
+            while(1);
+        }
+    }
+    return 0;
 }

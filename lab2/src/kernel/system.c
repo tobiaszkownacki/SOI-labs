@@ -125,7 +125,6 @@ INIT_ASSERT
 #define IOPL_MASK 0x003000
 
 PRIVATE message m;
-int quant_multipl[3] = {1, 1, 2};
 
 FORWARD _PROTOTYPE( int do_abort, (message *m_ptr) );
 FORWARD _PROTOTYPE( int do_copy, (message *m_ptr) );

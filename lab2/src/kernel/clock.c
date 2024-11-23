@@ -99,7 +99,7 @@ FORWARD _PROTOTYPE( void cause_alarm, (void) );
 FORWARD _PROTOTYPE( void do_setsyn_alrm, (message *m_ptr) );
 FORWARD _PROTOTYPE( int clock_handler, (int irq) );
 
-int quant_multip[3] = {1, 1, 2};
+int quant_multip[3] = {0, 0, 1};
 
 /*===========================================================================*
  *				clock_task				     *
@@ -188,7 +188,7 @@ PRIVATE void do_clocktick()
 	if (bill_ptr == prev_ptr) lock_sched();	/* process has run too long */
 
   if(proc_ptr->p_pid !=0 )
-    sched_ticks = SCHED_RATE * quant_multip[proc_ptr->group];
+    sched_ticks = SCHED_RATE << quant_multip[proc_ptr->group];
   else
     sched_ticks = SCHED_RATE;		/* reset quantum */
 
@@ -484,7 +484,7 @@ int irq;
 	/* If bill_ptr == prev_ptr, no ready users so don't need sched(). */
 
 	if(proc_ptr->p_pid !=0 )
-    sched_ticks = SCHED_RATE * quant_multip[proc_ptr->group];
+    sched_ticks = SCHED_RATE << quant_multip[proc_ptr->group];
   else
     sched_ticks = SCHED_RATE;		/* reset quantum */
 
