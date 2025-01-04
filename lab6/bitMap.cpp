@@ -49,14 +49,14 @@ public:
         return map.size();
     }
 
-    unsigned int findFirstFree() const
+    unsigned int findFirstFreeBlock() const
     {
         for (unsigned int i = 0; i < map.size(); i++) {
             if (!map[i]) {
                 return i;
             }
         }
-        return -1;
+        throw std::runtime_error("No free blocks available");
     }
 
     unsigned int countFree() const

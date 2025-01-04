@@ -86,38 +86,3 @@ public:
     }
 
 };
-
-// int main()
-// {
-//     try {
-
-//         SuperBlok superBlok(104857600, 2048, 20, 100);
-
-//         // Tworzenie pliku virtual_disk
-//         std::ofstream disk("virtual_disk.bin", std::ios::binary);
-//         if (!disk) {
-//             std::cerr << "Błąd podczas tworzenia pliku virtual_disk.\n";
-//             return 1;
-//         }
-
-//         superBlok.write(disk);
-
-//         disk.close();
-//         std::cout << "Superblock zapisany do pliku virtual_disk.\n";
-
-//         std::ifstream diskRead("virtual_disk.bin", std::ios::binary);
-//         if (!diskRead) {
-//             std::cerr << "Błąd podczas otwierania pliku do odczytu.\n";
-//             return 1;
-//         }
-
-//         SuperBlok readSuperBlok(diskRead);
-//         readSuperBlok.printSuperBlock();
-//         diskRead.close();
-//     } catch (const std::runtime_error& e) {
-//         std::cerr << "Błąd: " << e.what() << std::endl;
-//         return 1;
-//     }
-
-//     return 0;
-// }

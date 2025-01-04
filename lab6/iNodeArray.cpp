@@ -2,6 +2,7 @@
 #include <fstream>
 #include "structures.h"
 
+
 class INodeArray {
 private:
     std::vector<iNode> iNodes;
@@ -11,6 +12,9 @@ public:
     INodeArray(unsigned int numberOfINodes)
     {
         iNodes.resize(numberOfINodes);
+        for (unsigned int i = 0; i < numberOfINodes; ++i) {
+            iNodes[i].indexNode = i;
+        }
     }
 
     INodeArray(std::ifstream& disk, unsigned int numberOfINodes)
@@ -38,4 +42,5 @@ public:
     {
         return iNodes[index];
     }
+
 };
