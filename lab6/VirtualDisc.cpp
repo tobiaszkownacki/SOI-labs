@@ -88,9 +88,7 @@ public:
             writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
         }
 
-        updateBitmaps();
-        writeINodes();
-        updateSuperBlok(superBlok.get_dataBlockSize());
+        updateMetaData(0);
 
     }
 
@@ -110,18 +108,6 @@ public:
             disk.write(fileName.c_str(), fileNameSize);
             disk.write(reinterpret_cast<const char*>(&iNodeNumber), sizeof(iNodeNumber));
         }
-        disk.close();
-    }
-
-    void writeINodes()
-    {
-        std::ofstream disk(path, std::ios::binary | std::ios::in | std::ios::out);
-        if (!disk.is_open()) {
-            throw std::runtime_error("Error opening disk file");
-        }
-
-        disk.seekp(superBlok.get_firstINodeOffset(), std::ios::beg);
-        iNodeArray.write(disk);
         disk.close();
     }
 
@@ -149,7 +135,7 @@ public:
         return directoryEntries;
     }
 
-    void updateSuperBlok(size_t size = 0)
+    void updateMetaData(unsigned int sizeOfFile)
     {
         std::ofstream disk(path, std::ios::binary | std::ios::in | std::ios::out);
         if (!disk.is_open()) {
@@ -158,20 +144,12 @@ public:
 
         superBlok.set_numberOfFiles(superBlok.get_numberOfFiles() + 1);
         superBlok.set_lastModification();
-        superBlok.set_usedBytesSize(superBlok.get_usedBytesSize() + size);
+        superBlok.set_usedBytesSize(superBlok.get_usedBytesSize() + sizeOfFile);
+        // TODO: konieczne update size w katalogach nadrzędnych
         superBlok.write(disk);
-        disk.close();
-    }
 
-    void updateBitmaps()
-    {
-        std::ofstream disk(path, std::ios::binary | std::ios::in | std::ios::out);
-        if (!disk.is_open()) {
-            throw std::runtime_error("Error opening disk file");
-        }
-        disk.seekp(superBlok.get_iNodeBitmapOffset(), std::ios::beg);
+        iNodeArray.write(disk);
         iNodeBitmap.write(disk);
-        disk.seekp(superBlok.get_dataBlockBitmapOffset(), std::ios::beg);
         dataBlockBitmap.write(disk);
         disk.close();
     }
