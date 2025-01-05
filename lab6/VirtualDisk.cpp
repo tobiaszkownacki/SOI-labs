@@ -68,7 +68,7 @@ private:
         return directoryEntries;
     }
 
-    void updateMetaData(unsigned int newUsedBlocks) {
+    void updateMetaData(unsigned int fileSize) {
         std::ofstream disk(diskPath, std::ios::binary | std::ios::in | std::ios::out);
         if (!disk.is_open()) {
             throw std::runtime_error("Error opening disk file");
@@ -76,7 +76,7 @@ private:
 
         superBlok.set_numberOfFiles(superBlok.get_numberOfFiles() + 1);
         superBlok.set_lastModification();
-        superBlok.set_usedBytesSize(superBlok.get_usedBytesSize() + newUsedBlocks * DataBlockSize);
+        superBlok.set_usedBytesSize(superBlok.get_usedBytesSize() + fileSize);
         superBlok.write(disk);
 
         iNodeArray.write(disk);
@@ -85,19 +85,41 @@ private:
         disk.close();
     }
 
-    void updateParentsDirectory(unsigned int newUsedBlocks) {
+    void updateParentsDirectory(unsigned int fileSize) {
         unsigned int parentINodeNumber = currentINodeNumber;
         while(parentINodeNumber != 0)
         {
             iNode& parentINode = iNodeArray[parentINodeNumber];
-            parentINode.sizeOfFile += newUsedBlocks * DataBlockSize;
+            parentINode.sizeOfFile += fileSize;
             parentINodeNumber = parentINode.parentDirectoryIndexNode;
             parentINode.modificationTime = std::time(nullptr);
         }
 
         iNode& rootINode = iNodeArray[0];
-        rootINode.sizeOfFile += newUsedBlocks * DataBlockSize;
+        rootINode.sizeOfFile += fileSize;
         rootINode.modificationTime = std::time(nullptr);
+    }
+
+    unsigned int sumDataBlocksInDescendantsRecursive(unsigned int iNodeNumber, unsigned int& usedBlocksOfData) {
+        iNode iNode = iNodeArray[iNodeNumber];
+        if(iNode.fileType == FileType::file) {
+            usedBlocksOfData += iNode.usedBlocksOfData;
+            return iNode.usedBlocksOfData;
+        }
+        else {
+            unsigned int totalSize = 0;
+            std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNode.directDataBlocks[0]);
+            for (const auto& [fileName, iNodeNumber] : directoryEntries) {
+                totalSize += sumDataBlocksInDescendantsRecursive(iNodeNumber, usedBlocksOfData);
+            }
+            return totalSize;
+        }
+
+    }
+
+    unsigned int sumDataBlocksInDescendants(unsigned int iNodeNumber) {
+        unsigned int usedBlocksOfData = 0;
+        return sumDataBlocksInDescendantsRecursive(iNodeNumber, usedBlocksOfData);
     }
 
 
@@ -144,7 +166,7 @@ public:
         iNode.creationTime = std::time(nullptr);
         iNode.modificationTime = std::time(nullptr);
         iNode.usedBlocksOfData = 1;
-        iNode.sizeOfFile = iNode.usedBlocksOfData * DataBlockSize;
+        iNode.sizeOfFile = DataBlockSize;
         iNode.directDataBlocks[0] = dataBlockBitmap.findFirstFreeBlock();
         dataBlockBitmap.set(iNode.directDataBlocks[0], true);
         iNode.countHardLinks = 1;
@@ -158,10 +180,10 @@ public:
             std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
             directoryEntries[directoryName] = iNodeNumber;
             writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
-            updateParentsDirectory(iNode.usedBlocksOfData);
+            updateParentsDirectory(iNode.sizeOfFile);
         }
 
-        updateMetaData(iNode.usedBlocksOfData);
+        updateMetaData(iNode.sizeOfFile);
 
     }
 
@@ -177,8 +199,13 @@ public:
         iNode &iNode = iNodeArray[iNodeNumber];
         iNode.creationTime = std::time(nullptr);
         iNode.modificationTime = std::time(nullptr);
-        iNode.usedBlocksOfData = 0;
-        iNode.sizeOfFile = 0;
+
+        sourceFile.seekg(0, std::ios::end);
+        iNode.sizeOfFile = sourceFile.tellg();
+        std::cout << sourceFile.tellg() << std::endl;
+        sourceFile.seekg(0, std::ios::beg);
+
+        iNode.usedBlocksOfData = (iNode.sizeOfFile + DataBlockSize - 1) / DataBlockSize;
         iNode.countHardLinks = 1;
         iNode.parentDirectoryIndexNode = currentINodeNumber;
         iNode.fileType = FileType::file;
@@ -191,11 +218,9 @@ public:
             throw std::runtime_error("Error opening disk file");
         }
 
-        // Warning - to działa tylko jeśli plik < 8 * DataBlockSize
+        // Warning - Works if only file < 8 * DataBlockSize
         while(sourceFile.read(buffer, DataBlockSize) || sourceFile.gcount() > 0) {
-            std::cout << "lol" << std::endl;
             unsigned int dataBlockNumber = dataBlockBitmap.findFirstFreeBlock();
-            std::cout << "dataBlockNumber: " << dataBlockNumber << std::endl;
             dataBlockBitmap.set(dataBlockNumber, true);
             iNode.directDataBlocks[blockIndex] = dataBlockNumber;
             ++blockIndex;
@@ -209,19 +234,19 @@ public:
                 disk.write(buffer, DataBlockSize);
             }
         }
-        std::cout << "po lol" << std::endl;
         disk.close();
-
-        iNode.usedBlocksOfData = blockIndex;
-        iNode.sizeOfFile = iNode.usedBlocksOfData * DataBlockSize;
 
         // update current directory
         std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
         directoryEntries[fileName] = iNodeNumber;
         writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
 
-        updateParentsDirectory(iNode.usedBlocksOfData);
-        updateMetaData(iNode.usedBlocksOfData);
+        updateParentsDirectory(iNode.sizeOfFile);
+        updateMetaData(iNode.sizeOfFile);
+    }
+
+    void copyFileToSystemDisk(std::string destinationPath, std::string fileName) {
+        // TODO:
     }
 
     void printDirectory() {
@@ -229,29 +254,36 @@ public:
 
         const int colWidthName = 15;
         const int colWidthType = 13;
-        const int colWidthSize = 10;
+        const int colWidthSize = 25;
         const int colWidthTime = 30;
 
-        std::cout << "Zawartość katalogu:" << std::endl;
+        std::cout << "Directory contents:" << std::endl;
         std::cout << std::left
-                << std::setw(colWidthName) << "Nazwa pliku"
-                << std::setw(colWidthType) << "Typ pliku"
-                << std::setw(colWidthSize) << "Rozmiar B"
-                << std::setw(colWidthTime) << "Czas utworzenia"
-                << "Czas ostatniej modyfikacji"
+                << std::setw(colWidthName) << "File Name"
+                << std::setw(colWidthType) << "File Type"
+                << std::setw(colWidthSize) << "Size in Bytes"
+                << std::setw(colWidthTime) << "Creation Time"
+                << "Last Modification Time"
                 << std::endl;
+
 
         std::cout << std::string(colWidthName + colWidthType + colWidthSize + 2 * colWidthTime, '-') << std::endl;
 
         unsigned int totalSizeLevel0 = 0;
-        unsigned int totalSize = 0;
+        unsigned int usedBlocksOfDataLevel0 = 0;
         for (const auto& [fileName, iNodeNumber] : directoryEntries) {
 
             iNode iNode = iNodeArray[iNodeNumber];
-            totalSizeLevel0 += iNode.usedBlocksOfData * DataBlockSize;
-            totalSize += iNode.sizeOfFile;
+            if(iNode.fileType == FileType::file) {
+                totalSizeLevel0 += iNode.sizeOfFile;
+            }
+            else {
+                // Level 0 directory size is the size of one data block
+                totalSizeLevel0 += DataBlockSize;
+            }
 
-            // Usunięcie '\n' z końca stringa
+            usedBlocksOfDataLevel0 += iNode.usedBlocksOfData;
+            // delete '\n' from ctime
             std::string creationTimeStr = std::ctime(&iNode.creationTime);
             creationTimeStr.pop_back();
 
@@ -264,10 +296,39 @@ public:
                     << std::setw(colWidthTime) << creationTimeStr
                     << modificationTimeStr;
         }
+        std::cout << std::string(colWidthName + colWidthType + colWidthSize + 2 * colWidthTime, '-') << std::endl;
+
+        unsigned int logicalTotalSize = sumDataBlocksInDescendants(currentINodeNumber) * DataBlockSize;
+        unsigned int logicalFreeSpace = dataBlockBitmap.countFree() * DataBlockSize;
+        // subtract size of current directory
+        unsigned int physicalSizeSubdirectories = iNodeArray[currentINodeNumber].sizeOfFile - DataBlockSize;
         std::cout << std::endl;
-        std::cout << "Rozmiar plików w samym katalogu: " << totalSizeLevel0 << " B" << std::endl;
-        std::cout << "Rozmiar plików wraz z podkatalogami: " << totalSize << " B" << std::endl;
-        std::cout << "Wolne miejsce na dysku: " << superBlok.get_totalBytesSize() - superBlok.get_usedBytesSize() << " B" << std::endl;
+        std::cout << "Physical size of files in the directory: " << totalSizeLevel0 << " B" << std::endl;
+        std::cout << "Physical size of files including subdirectories: " << physicalSizeSubdirectories << " B" << std::endl << std::endl;
+        std::cout << "Logical size of files in the directory: " << usedBlocksOfDataLevel0 * DataBlockSize << " B" << std::endl;
+        std::cout << "Logical size of files including subdirectories: " << logicalTotalSize << " B" << std::endl << std::endl;
+        std::cout << "Physical free space on the disk: " << superBlok.get_totalBytesSize() - superBlok.get_usedBytesSize() << " B" << std::endl;
+        std::cout << "Logical free space on the disk: " << logicalFreeSpace << " B" << std::endl;
+
+    }
+
+    void changeDirectory(const std::string& directoryName) {
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        if(directoryEntries.find(directoryName) == directoryEntries.end()) {
+            std::cerr << "Directory not found" << std::endl;
+        }
+        if(iNodeArray[directoryEntries[directoryName]].fileType != FileType::directory) {
+            std::cerr << "Not a directory" << std::endl;
+        }
+        currentINodeNumber = directoryEntries[directoryName];
+        std::cout << "Changed to directory: " << directoryName << std::endl;
+    }
+
+    void changeToParentDirectory() {
+        if(currentINodeNumber == 0) {
+            std::cerr << "Already in root directory" << std::endl;
+        }
+        currentINodeNumber = iNodeArray[currentINodeNumber].parentDirectoryIndexNode;
     }
 
 };
@@ -280,19 +341,22 @@ int main() {
     //to pytamy czy tworzyć nowy o podanym rozmiarze
 
     while(true) {
-        std::cout<<std::endl << std::endl;
         std::cout<<"------------------------------------"<<std::endl;
-        std::cout << "1. Skopiuj plik z dysku systemu na dysk wirtualny" << std::endl;
-        std::cout << "2. Utwórz katalog" << std::endl;
-        std::cout << "3. Usuń katalog z dysku wirtualnego" << std::endl;
-        std::cout << "4. Skopiuj plik z dysku wirtualnego na dysk systemu" << std::endl;
-        std::cout << "5. Wyświetl informacje o aktualnym katalogu" << std::endl;
-        std::cout << "6. Stwórz twarde dowiązanie do pliku lub katalogu" << std::endl;
-        std::cout << "7. Usuwanie pliku lub dowiązania z wirtualnego dysku" << std::endl;
-        std::cout << "8. Dodaj do pliku o zadanej nazwie N bajtów" << std::endl;
-        std::cout << "9. Skrócenie pliku o zadanej nazwie o N bajtów" << std::endl;
-        std::cout << "10. Wyświetl informacje o zajętości dysku" << std::endl;
-        std::cout << "11. EXIT" << std::endl;
+        std::cout << "1. Copy a file from the system disk to the virtual disk" << std::endl;
+        std::cout << "2. Create a directory" << std::endl;
+        std::cout << "3. Delete a directory from the virtual disk" << std::endl;
+        std::cout << "4. Copy a file from the virtual disk to the system disk" << std::endl;
+        std::cout << "5. Display information about the current directory" << std::endl;
+        std::cout << "6. Create a hard link to a file or directory" << std::endl;
+        std::cout << "7. Delete a file from the virtual disk" << std::endl;
+        std::cout << "8. Add N bytes to a file with the specified name" << std::endl;
+        std::cout << "9. Truncate a file with the specified name by N bytes" << std::endl;
+        std::cout << "10. Display disk usage information" << std::endl;
+        std::cout << "11. Change to the selected directory" << std::endl;
+        std::cout << "12. Go to the parent directory" << std::endl;
+        std::cout << "13. EXIT" << std::endl;
+
+        std::cout<<"------------------------------------"<<std::endl;
 
         int choice;
         std::cin >> choice;
@@ -300,18 +364,18 @@ int main() {
         switch(choice)
         {
             case 1: {
-                // TODO:
-                std::string path, fileName;
-                std::cout << "Podaj ścieżkę do pliku: ";
-                std::cin >> path;
-                std::cout << "Podaj nazwę pliku: ";
+                std::string sourcePath, fileName;
+                std::cout << "Enter the file path: ";
+                std::cin >> sourcePath;
+                std::cout << "Enter the file name: ";
                 std::cin >> fileName;
-                virtualDisk.copyFileFromSystemDisk(path, fileName);
+                virtualDisk.copyFileFromSystemDisk(sourcePath, fileName);
+
                 break;
             }
             case 2: {
                 std::string directoryName;
-                std::cout << "Podaj nazwę katalogu: ";
+                std::cout << "Enter the directory name: ";
                 std::cin >> directoryName;
                 virtualDisk.createDirectory(directoryName);
                 break;
@@ -321,7 +385,12 @@ int main() {
                 break;
             }
             case 4: {
-                // TODO:
+                std::string destinationPath, fileName;
+                std::cout << "Enter the file name: ";
+                std::cin >> fileName;
+                std::cout << "Enter destination path: ";
+                std::cin >> destinationPath;
+                virtualDisk.copyFileToSystemDisk(destinationPath, fileName);
                 break;
             }
             case 5: {
@@ -349,10 +418,21 @@ int main() {
                 break;
             }
             case 11: {
+                std::string directoryName;
+                std::cout << "Enter the directory name: ";
+                std::cin >> directoryName;
+                virtualDisk.changeDirectory(directoryName);
+                break;
+            }
+            case 12: {
+                virtualDisk.changeToParentDirectory();
+                break;
+            }
+            case 13: {
                 return 0;
             }
             default: {
-                std::cout << "Niepoprawny wybór" << std::endl;
+                std::cout << "Wrong command" << std::endl;
                 break;
             }
 
