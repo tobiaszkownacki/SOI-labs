@@ -68,13 +68,13 @@ private:
         return directoryEntries;
     }
 
-    void updateMetaData(unsigned int fileSize) {
+    void updateMetaData(unsigned int fileSize, unsigned int numberofNewFiles = 1) {
         std::ofstream disk(diskPath, std::ios::binary | std::ios::in | std::ios::out);
         if (!disk.is_open()) {
             throw std::runtime_error("Error opening disk file");
         }
 
-        superBlok.set_numberOfFiles(superBlok.get_numberOfFiles() + 1);
+        superBlok.set_numberOfFiles(superBlok.get_numberOfFiles() + numberofNewFiles);
         superBlok.set_lastModification();
         superBlok.set_usedBytesSize(superBlok.get_usedBytesSize() + fileSize);
         superBlok.write(disk);
@@ -100,17 +100,16 @@ private:
         rootINode.modificationTime = std::time(nullptr);
     }
 
-    unsigned int sumDataBlocksInDescendantsRecursive(unsigned int iNodeNumber, unsigned int& usedBlocksOfData) {
+    unsigned int sumDataBlocksInDescendantsRecursive(unsigned int iNodeNumber) {
         iNode iNode = iNodeArray[iNodeNumber];
         if(iNode.fileType == FileType::file) {
-            usedBlocksOfData += iNode.usedBlocksOfData;
             return iNode.usedBlocksOfData;
         }
         else {
-            unsigned int totalSize = 0;
+            unsigned int totalSize = 1;
             std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNode.directDataBlocks[0]);
             for (const auto& [fileName, iNodeNumber] : directoryEntries) {
-                totalSize += sumDataBlocksInDescendantsRecursive(iNodeNumber, usedBlocksOfData);
+                totalSize += sumDataBlocksInDescendantsRecursive(iNodeNumber);
             }
             return totalSize;
         }
@@ -119,7 +118,12 @@ private:
 
     unsigned int sumDataBlocksInDescendants(unsigned int iNodeNumber) {
         unsigned int usedBlocksOfData = 0;
-        return sumDataBlocksInDescendantsRecursive(iNodeNumber, usedBlocksOfData);
+        iNode iNode = iNodeArray[iNodeNumber];
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNode.directDataBlocks[0]);
+        for (const auto& [fileName, iNodeChildNumber] : directoryEntries) {
+            usedBlocksOfData += sumDataBlocksInDescendantsRecursive(iNodeChildNumber);
+        }
+        return usedBlocksOfData;
     }
 
 
@@ -218,7 +222,7 @@ public:
             throw std::runtime_error("Error opening disk file");
         }
 
-        // Warning - Works if only file < 8 * DataBlockSize
+        // !!Warning!! - Works if only file < 8 * DataBlockSize
         while(sourceFile.read(buffer, DataBlockSize) || sourceFile.gcount() > 0) {
             unsigned int dataBlockNumber = dataBlockBitmap.findFirstFreeBlock();
             dataBlockBitmap.set(dataBlockNumber, true);
@@ -246,7 +250,37 @@ public:
     }
 
     void copyFileToSystemDisk(std::string destinationPath, std::string fileName) {
-        // TODO:
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        if(directoryEntries.find(fileName) == directoryEntries.end()) {
+            std::cerr << "File not found" << std::endl;
+            return;
+        }
+
+        std::ofstream destinationFile(destinationPath + "/" + fileName, std::ios::binary);
+        if(!destinationFile.is_open()){
+            throw std::runtime_error("Error opening destination file");
+        }
+
+        iNode iNode = iNodeArray[directoryEntries[fileName]];
+
+        std::ifstream disk(diskPath, std::ios::binary);
+        if (!disk.is_open()) {
+            throw std::runtime_error("Error opening disk file");
+        }
+
+        char buffer[DataBlockSize];
+        for (unsigned int i = 0; i < iNode.usedBlocksOfData; ++i) {
+            disk.seekg(superBlok.get_firstDataBlockOffset() + iNode.directDataBlocks[i] * DataBlockSize, std::ios::beg);
+            disk.read(buffer, DataBlockSize);
+            if(i == iNode.usedBlocksOfData - 1) {
+                destinationFile.write(buffer, iNode.sizeOfFile % DataBlockSize);
+            }
+            else {
+                destinationFile.write(buffer, DataBlockSize);
+            }
+        }
+        disk.close();
+        destinationFile.close();
     }
 
     void printDirectory() {
@@ -312,6 +346,50 @@ public:
 
     }
 
+    void addNBytes(const std::string& fileName, unsigned int bytes) {
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        if(directoryEntries.find(fileName) == directoryEntries.end()) {
+            std::cerr << "File not found" << std::endl;
+            return;
+        }
+
+        iNode& iNode = iNodeArray[directoryEntries[fileName]];
+        unsigned int oldSize = iNode.sizeOfFile;
+        unsigned int newBlockIndex = iNode.usedBlocksOfData;
+        iNode.sizeOfFile += bytes;
+        unsigned int newUsedBlocksOfData = (iNode.sizeOfFile / DataBlockSize) - (oldSize / DataBlockSize);
+
+        for(int i = 0; i < newUsedBlocksOfData; ++i) {
+            unsigned int dataBlockNumber = dataBlockBitmap.findFirstFreeBlock();
+            dataBlockBitmap.set(dataBlockNumber, true);
+            iNode.directDataBlocks[newBlockIndex + i] = dataBlockNumber;
+        }
+
+        iNode.usedBlocksOfData += newUsedBlocksOfData;
+        updateParentsDirectory(bytes);
+        updateMetaData(bytes, 0);
+    }
+
+    void takeAwayNBytes(const std::string& fileName, unsigned int bytes) {
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        if(directoryEntries.find(fileName) == directoryEntries.end()) {
+            std::cerr << "File not found" << std::endl;
+            return;
+        }
+
+        iNode& iNode = iNodeArray[directoryEntries[fileName]];
+        unsigned int oldSize = iNode.sizeOfFile;
+        iNode.sizeOfFile -= bytes;
+        unsigned int BlocksToFree = (oldSize / DataBlockSize) - (iNode.sizeOfFile / DataBlockSize);
+        for(int i = 0; i < BlocksToFree; ++i) {
+            dataBlockBitmap.set(iNode.directDataBlocks[iNode.usedBlocksOfData - 1 - i], false);
+        }
+
+        iNode.usedBlocksOfData -= BlocksToFree;
+        updateParentsDirectory(-bytes);
+        updateMetaData(-bytes, 0);
+    }
+
     void changeDirectory(const std::string& directoryName) {
         std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
         if(directoryEntries.find(directoryName) == directoryEntries.end()) {
@@ -350,7 +428,7 @@ int main() {
         std::cout << "6. Create a hard link to a file or directory" << std::endl;
         std::cout << "7. Delete a file from the virtual disk" << std::endl;
         std::cout << "8. Add N bytes to a file with the specified name" << std::endl;
-        std::cout << "9. Truncate a file with the specified name by N bytes" << std::endl;
+        std::cout << "9. Take away N bytes from a file with the specified name." << std::endl;
         std::cout << "10. Display disk usage information" << std::endl;
         std::cout << "11. Change to the selected directory" << std::endl;
         std::cout << "12. Go to the parent directory" << std::endl;
@@ -406,11 +484,23 @@ int main() {
                 break;
             }
             case 8: {
-                // TODO:
+                unsigned int bytes;
+                std::string fileName;
+                std::cout << "Enter the file name: ";
+                std::cin >> fileName;
+                std::cout << "Enter the number of bytes: ";
+                std::cin >> bytes;
+                virtualDisk.addNBytes(fileName, bytes);
                 break;
             }
             case 9: {
-                // TODO:
+                unsigned int bytes;
+                std::string fileName;
+                std::cout << "Enter the file name: ";
+                std::cin >> fileName;
+                std::cout << "Enter the number of bytes: ";
+                std::cin >> bytes;
+                virtualDisk.takeAwayNBytes(fileName, bytes);
                 break;
             }
             case 10: {
