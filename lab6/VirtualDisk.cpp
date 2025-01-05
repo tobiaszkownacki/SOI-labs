@@ -379,6 +379,38 @@ public:
 
     }
 
+    void deleteFile(const std::string& fileName) {
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        if(directoryEntries.find(fileName) == directoryEntries.end()) {
+            std::cerr << "File not found" << std::endl;
+            return;
+        }
+        iNode& iNode = iNodeArray[directoryEntries[fileName]];
+        if(iNode.fileType == FileType::directory) {
+            std::cerr << "Delete directory is a different switch option" << std::endl;
+            return;
+        }
+
+        iNode.countHardLinks -= 1;
+        if(iNode.countHardLinks == 0) {
+            for(unsigned int i = 0; i < iNode.usedBlocksOfData; ++i) {
+                dataBlockBitmap.set(iNode.directDataBlocks[i], false);
+            }
+            iNodeBitmap.set(iNode.indexNode, false);
+        }
+        directoryEntries.erase(fileName);
+        writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
+
+        if(iNode.countHardLinks == 0) {
+            updateMetaData(-iNode.sizeOfFile, -1);
+            updateParentsDirectory(-iNode.sizeOfFile);
+        }
+        else {
+            updateMetaData(0, -1);
+            updateParentsDirectory(0);
+        }
+    }
+
     void addNBytes(const std::string& fileName, unsigned int bytes) {
         std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
         if(directoryEntries.find(fileName) == directoryEntries.end()) {
@@ -535,11 +567,10 @@ int main() {
                 break;
             }
             case 7: {
-                // TODO:
                 std::string fileName;
                 std::cout << "Enter the file name: ";
                 std::cin >> fileName;
-                //virtualDisk.deleteFile(fileName);
+                virtualDisk.deleteFile(fileName);
                 break;
             }
             case 8: {
