@@ -68,7 +68,7 @@ private:
         return directoryEntries;
     }
 
-    void updateMetaData(unsigned int fileSize, unsigned int numberofNewFiles = 1) {
+    void updateMetaData(int fileSize, unsigned int numberofNewFiles = 1) {
         std::ofstream disk(diskPath, std::ios::binary | std::ios::in | std::ios::out);
         if (!disk.is_open()) {
             throw std::runtime_error("Error opening disk file");
@@ -206,7 +206,6 @@ public:
 
         sourceFile.seekg(0, std::ios::end);
         iNode.sizeOfFile = sourceFile.tellg();
-        std::cout << sourceFile.tellg() << std::endl;
         sourceFile.seekg(0, std::ios::beg);
 
         iNode.usedBlocksOfData = (iNode.sizeOfFile + DataBlockSize - 1) / DataBlockSize;
@@ -286,10 +285,10 @@ public:
     void printDirectory() {
         std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
 
-        const int colWidthName = 15;
-        const int colWidthType = 13;
-        const int colWidthSize = 25;
-        const int colWidthTime = 30;
+        const int colWidthName = 14;
+        const int colWidthType = 12;
+        const int colWidthSize = 23;
+        const int colWidthTime = 27;
 
         std::cout << "Directory contents:" << std::endl;
         std::cout << std::left
@@ -346,6 +345,40 @@ public:
 
     }
 
+    void createHardLink(std::string& sourcePath, std::string& newFileName) {
+        // we accept sourcePath line: root/folder1/podfolder2 and also root/folder1/plik1
+        // !!Warning!! - new hardlink is not counted in the size of the current directory
+
+        std::vector<std::string> partsOfPath;
+        std::string part;
+        std::istringstream pathStream(sourcePath);
+        while(std::getline(pathStream, part, '/')) {
+            partsOfPath.push_back(part);
+        }
+
+
+        unsigned int iNodeNumber = 0;
+        for(std::size_t i = 1; i < partsOfPath.size(); ++i) {
+
+            std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[iNodeNumber].directDataBlocks[0]);
+            if(directoryEntries.find(partsOfPath[i]) == directoryEntries.end()) {
+                std::cerr << "File not found" << std::endl;
+                return;
+            }
+            iNodeNumber = directoryEntries[partsOfPath[i]];
+        }
+
+        iNode &sourceINode = iNodeArray[iNodeNumber];
+        sourceINode.countHardLinks += 1;
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        directoryEntries[newFileName] = iNodeNumber;
+        writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
+
+        updateMetaData(0, 1);
+        updateParentsDirectory(0);
+
+    }
+
     void addNBytes(const std::string& fileName, unsigned int bytes) {
         std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
         if(directoryEntries.find(fileName) == directoryEntries.end()) {
@@ -357,7 +390,7 @@ public:
         unsigned int oldSize = iNode.sizeOfFile;
         unsigned int newBlockIndex = iNode.usedBlocksOfData;
         iNode.sizeOfFile += bytes;
-        unsigned int newUsedBlocksOfData = (iNode.sizeOfFile / DataBlockSize) - (oldSize / DataBlockSize);
+        int newUsedBlocksOfData = (iNode.sizeOfFile / DataBlockSize) - (oldSize / DataBlockSize);
 
         for(int i = 0; i < newUsedBlocksOfData; ++i) {
             unsigned int dataBlockNumber = dataBlockBitmap.findFirstFreeBlock();
@@ -380,7 +413,7 @@ public:
         iNode& iNode = iNodeArray[directoryEntries[fileName]];
         unsigned int oldSize = iNode.sizeOfFile;
         iNode.sizeOfFile -= bytes;
-        unsigned int BlocksToFree = (oldSize / DataBlockSize) - (iNode.sizeOfFile / DataBlockSize);
+        int BlocksToFree = (oldSize / DataBlockSize) - (iNode.sizeOfFile / DataBlockSize);
         for(int i = 0; i < BlocksToFree; ++i) {
             dataBlockBitmap.set(iNode.directDataBlocks[iNode.usedBlocksOfData - 1 - i], false);
         }
@@ -388,6 +421,23 @@ public:
         iNode.usedBlocksOfData -= BlocksToFree;
         updateParentsDirectory(-bytes);
         updateMetaData(-bytes, 0);
+    }
+
+    void showDiskUsage() {
+        unsigned int totalSize = superBlok.get_totalBytesSize();
+        unsigned int physicalUsedSize = iNodeArray[0].sizeOfFile;
+        unsigned int metaDataSize = superBlok.get_usedBytesSize() - iNodeArray[0].sizeOfFile;
+        unsigned int logicalUsedSize = (sumDataBlocksInDescendants(0) + 1)* (DataBlockSize);
+        unsigned int physicalFreeSize = totalSize - physicalUsedSize;
+        unsigned int logicalFreeSize = dataBlockBitmap.countFree() * DataBlockSize;
+
+        std::cout << "Total disk size: " << totalSize << " B" << std::endl;
+        std::cout << "Metadata size: " << metaDataSize << " B" << std::endl;
+        std::cout << "Physical disk usage: " << physicalUsedSize << " B" << std::endl;
+        std::cout << "Logical disk usage: " << logicalUsedSize << " B" << std::endl;
+        std::cout << "Physical free space: " << physicalFreeSize << " B" << std::endl;
+        std::cout << "Logical free space: " << logicalFreeSize << " B" << std::endl;
+
     }
 
     void changeDirectory(const std::string& directoryName) {
@@ -476,11 +526,20 @@ int main() {
                 break;
             }
             case 6: {
-                // TODO:
+                std::string sourcePath, newFileName;
+                std::cout << "Enter the file path: ";
+                std::cin >> sourcePath;
+                std::cout << "Enter the new file name: ";
+                std::cin >> newFileName;
+                virtualDisk.createHardLink(sourcePath, newFileName);
                 break;
             }
             case 7: {
                 // TODO:
+                std::string fileName;
+                std::cout << "Enter the file name: ";
+                std::cin >> fileName;
+                //virtualDisk.deleteFile(fileName);
                 break;
             }
             case 8: {
@@ -504,7 +563,7 @@ int main() {
                 break;
             }
             case 10: {
-                // TODO:
+                virtualDisk.showDiskUsage();
                 break;
             }
             case 11: {
