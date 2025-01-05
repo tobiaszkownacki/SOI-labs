@@ -15,7 +15,6 @@ private:
     INodeArray iNodeArray;
     bitMap iNodeBitmap;
     bitMap dataBlockBitmap;
-    unsigned int currentINodeNumber = 0;
     const unsigned int DataBlockSize = 2048u;
 
     void writeEmptyDataBlocks(std::ofstream& disk, unsigned int numberOfDataBlocks) {
@@ -128,6 +127,8 @@ private:
 
 
 public:
+    unsigned int currentINodeNumber = 0;
+
     VirtualDisk(unsigned int totalBytes, const std::string& diskPath) {
         this->diskPath = diskPath;
         std::ifstream disk(diskPath, std::ios::binary);
@@ -137,8 +138,6 @@ public:
             iNodeBitmap = bitMap(disk, superBlok.get_numberOfINodes());
             dataBlockBitmap = bitMap(disk, superBlok.get_numberOfDataBlocks());
             std::cout << "Wczytano dysk wirtualny z pliku " << diskPath << std::endl;
-            superBlok.printSuperBlock();
-
         } else {
             std::ofstream disk(diskPath, std::ios::binary);
             unsigned int numberOfINodes = 100;
@@ -156,7 +155,7 @@ public:
             iNodeBitmap.write(disk);
             dataBlockBitmap.write(disk);
             writeEmptyDataBlocks(disk, numberOfDataBlocks);
-            createDirectory("root");
+            createDirectory("home");
 
         }
 
@@ -178,7 +177,7 @@ public:
         iNode.fileType = FileType::directory;
 
         // update current directory
-        // don't update current directory if we create root directory
+        // don't update current directory if we create home directory
         if(currentINodeNumber != 0 || iNodeBitmap.countFree() != superBlok.get_numberOfINodes() - 1)
         {
             std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
@@ -246,6 +245,54 @@ public:
 
         updateParentsDirectory(iNode.sizeOfFile);
         updateMetaData(iNode.sizeOfFile);
+    }
+
+    void deleteDirectoryRecursively(const std::string& directoryName) {
+
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        if(directoryEntries.find(directoryName) == directoryEntries.end()) {
+            std::cerr << "Directory not found" << std::endl;
+            return;
+        }
+
+        unsigned int directoryINodeNumber = directoryEntries[directoryName];
+        iNode& directoryINode = iNodeArray[directoryINodeNumber];
+
+        if(directoryINode.fileType != FileType::directory) {
+            std::cerr << "Not a directory" << std::endl;
+            return;
+        }
+
+        directoryINode.countHardLinks -= 1;
+        if(directoryINode.countHardLinks == 0) {
+
+            std::map<std::string, unsigned int> childEntriesToDelete = readDirectoryDataBlock(directoryINode.directDataBlocks[0]);
+            for (const auto& [fileName, iNodeNumber] : childEntriesToDelete) {
+                iNode& iNode = iNodeArray[iNodeNumber];
+                if(iNode.fileType == FileType::directory) {
+                    deleteDirectoryRecursively(fileName);
+                }
+                else {
+                    deleteFile(fileName, directoryINodeNumber);
+                }
+            }
+
+            dataBlockBitmap.set(directoryINode.directDataBlocks[0], false);
+            iNodeBitmap.set(directoryINodeNumber, false);
+        }
+
+        directoryEntries.erase(directoryName);
+        writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
+
+        if(directoryINode.countHardLinks == 0) {
+            updateParentsDirectory(-directoryINode.sizeOfFile);
+            updateMetaData(-directoryINode.sizeOfFile, -1);
+        }
+        else {
+            updateParentsDirectory(0);
+            updateMetaData(0, -1);
+        }
+
     }
 
     void copyFileToSystemDisk(std::string destinationPath, std::string fileName) {
@@ -346,7 +393,7 @@ public:
     }
 
     void createHardLink(std::string& sourcePath, std::string& newFileName) {
-        // we accept sourcePath line: root/folder1/podfolder2 and also root/folder1/plik1
+        // we accept sourcePath line: home/folder1/podfolder2 and also home/folder1/plik1
         // !!Warning!! - new hardlink is not counted in the size of the current directory
 
         std::vector<std::string> partsOfPath;
@@ -379,8 +426,8 @@ public:
 
     }
 
-    void deleteFile(const std::string& fileName) {
-        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+    void deleteFile(const std::string& fileName, unsigned int baseINodeNumber) {
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[baseINodeNumber].directDataBlocks[0]);
         if(directoryEntries.find(fileName) == directoryEntries.end()) {
             std::cerr << "File not found" << std::endl;
             return;
@@ -399,15 +446,15 @@ public:
             iNodeBitmap.set(iNode.indexNode, false);
         }
         directoryEntries.erase(fileName);
-        writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
+        writeDirectoryDataBlock(iNodeArray[baseINodeNumber].directDataBlocks[0], directoryEntries);
 
         if(iNode.countHardLinks == 0) {
-            updateMetaData(-iNode.sizeOfFile, -1);
             updateParentsDirectory(-iNode.sizeOfFile);
+            updateMetaData(-iNode.sizeOfFile, -1);
         }
         else {
-            updateMetaData(0, -1);
             updateParentsDirectory(0);
+            updateMetaData(0, -1);
         }
     }
 
@@ -456,6 +503,7 @@ public:
     }
 
     void showDiskUsage() {
+        std::cout << iNodeBitmap.countFree() << std::endl << dataBlockBitmap.countFree() << std::endl;
         unsigned int totalSize = superBlok.get_totalBytesSize();
         unsigned int physicalUsedSize = iNodeArray[0].sizeOfFile;
         unsigned int metaDataSize = superBlok.get_usedBytesSize() - iNodeArray[0].sizeOfFile;
@@ -486,7 +534,7 @@ public:
 
     void changeToParentDirectory() {
         if(currentINodeNumber == 0) {
-            std::cerr << "Already in root directory" << std::endl;
+            std::cerr << "Already in home directory" << std::endl;
         }
         currentINodeNumber = iNodeArray[currentINodeNumber].parentDirectoryIndexNode;
     }
@@ -494,11 +542,30 @@ public:
 };
 
 
-int main() {
+int main(int argc, char *argv[]) {
 
-    VirtualDisk virtualDisk(4857600, "disk.bin");
-    // TODO: przyjmować ścieżkę do dysku jako argument programu, jeżeli nie istnieje
-    //to pytamy czy tworzyć nowy o podanym rozmiarze
+    //VirtualDisk virtualDisk(4857600, "disk.bin");
+    if(argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <disk_path>" << std::endl;
+        return 1;
+    }
+
+    std::string diskPath = argv[1];
+    std::ifstream disk(diskPath, std::ios::binary);
+    unsigned int totalBytes = 0;
+    if(!disk.is_open()) {
+        std::cout << "Disk not found. Do you want to create a new one? [y/n]" << std::endl;
+        char choice;
+        std::cin >> choice;
+        if(choice != 'y') {
+            return 0;
+        }
+        std::cout << "Enter the total size of the disk in bytes: ";
+        std::cin >> totalBytes;
+    }
+    VirtualDisk virtualDisk(totalBytes, diskPath);
+    disk.close();
+
 
     while(true) {
         std::cout<<"------------------------------------"<<std::endl;
@@ -541,7 +608,10 @@ int main() {
                 break;
             }
             case 3: {
-                // TODO:
+                std::string directoryName;
+                std::cout << "Enter the directory name: ";
+                std::cin >> directoryName;
+                virtualDisk.deleteDirectoryRecursively(directoryName);
                 break;
             }
             case 4: {
@@ -570,7 +640,7 @@ int main() {
                 std::string fileName;
                 std::cout << "Enter the file name: ";
                 std::cin >> fileName;
-                virtualDisk.deleteFile(fileName);
+                virtualDisk.deleteFile(fileName, virtualDisk.currentINodeNumber);
                 break;
             }
             case 8: {
