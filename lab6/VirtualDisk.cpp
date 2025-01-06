@@ -67,7 +67,7 @@ private:
         return directoryEntries;
     }
 
-    void updateMetaData(int fileSize, unsigned int numberofNewFiles = 1) {
+    void updateMetaData(int fileSize, int numberofNewFiles = 1) {
         std::ofstream disk(diskPath, std::ios::binary | std::ios::in | std::ios::out);
         if (!disk.is_open()) {
             throw std::runtime_error("Error opening disk file");
@@ -84,8 +84,7 @@ private:
         disk.close();
     }
 
-    void updateParentsDirectory(unsigned int fileSize) {
-        unsigned int parentINodeNumber = currentINodeNumber;
+    void updateParentsDirectory(int fileSize, int parentINodeNumber) {
         while(parentINodeNumber != 0)
         {
             iNode& parentINode = iNodeArray[parentINodeNumber];
@@ -104,7 +103,7 @@ private:
         if(iNode.fileType == FileType::file) {
             return iNode.usedBlocksOfData;
         }
-        else {
+        else if(iNode.fileType == FileType::directory) {
             unsigned int totalSize = 1;
             std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNode.directDataBlocks[0]);
             for (const auto& [fileName, iNodeNumber] : directoryEntries) {
@@ -112,7 +111,7 @@ private:
             }
             return totalSize;
         }
-
+        return 0;
     }
 
     unsigned int sumDataBlocksInDescendants(unsigned int iNodeNumber) {
@@ -137,7 +136,7 @@ public:
             iNodeArray = INodeArray(disk, superBlok.get_numberOfINodes());
             iNodeBitmap = bitMap(disk, superBlok.get_numberOfINodes());
             dataBlockBitmap = bitMap(disk, superBlok.get_numberOfDataBlocks());
-            std::cout << "Wczytano dysk wirtualny z pliku " << diskPath << std::endl;
+            std::cout << "Disk loaded successfully" << std::endl;
         } else {
             std::ofstream disk(diskPath, std::ios::binary);
             unsigned int numberOfINodes = 100;
@@ -183,8 +182,18 @@ public:
             std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
             directoryEntries[directoryName] = iNodeNumber;
             writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
-            updateParentsDirectory(iNode.sizeOfFile);
+            updateParentsDirectory(iNode.sizeOfFile, currentINodeNumber);
         }
+
+        // fill zero data block, because if file was deleted, there can be some data that crash program
+        std::ofstream disk(diskPath, std::ios::binary | std::ios::in | std::ios::out);
+        if (!disk.is_open()) {
+            throw std::runtime_error("Error opening disk file");
+        }
+        disk.seekp(superBlok.get_firstDataBlockOffset() + iNode.directDataBlocks[0] * DataBlockSize, std::ios::beg);
+        char buffer[DataBlockSize] = {0};
+        disk.write(buffer, DataBlockSize);
+        disk.close();
 
         updateMetaData(iNode.sizeOfFile);
 
@@ -243,13 +252,13 @@ public:
         directoryEntries[fileName] = iNodeNumber;
         writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
 
-        updateParentsDirectory(iNode.sizeOfFile);
+        updateParentsDirectory(iNode.sizeOfFile, currentINodeNumber);
         updateMetaData(iNode.sizeOfFile);
     }
 
-    void deleteDirectoryRecursively(const std::string& directoryName) {
+    void deleteDirectoryRecursively(const std::string& directoryName, unsigned int baseINodeNumber) {
 
-        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0]);
+        std::map<std::string, unsigned int> directoryEntries = readDirectoryDataBlock(iNodeArray[baseINodeNumber].directDataBlocks[0]);
         if(directoryEntries.find(directoryName) == directoryEntries.end()) {
             std::cerr << "Directory not found" << std::endl;
             return;
@@ -270,7 +279,7 @@ public:
             for (const auto& [fileName, iNodeNumber] : childEntriesToDelete) {
                 iNode& iNode = iNodeArray[iNodeNumber];
                 if(iNode.fileType == FileType::directory) {
-                    deleteDirectoryRecursively(fileName);
+                    deleteDirectoryRecursively(fileName, directoryINodeNumber);
                 }
                 else {
                     deleteFile(fileName, directoryINodeNumber);
@@ -282,14 +291,14 @@ public:
         }
 
         directoryEntries.erase(directoryName);
-        writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
+        writeDirectoryDataBlock(iNodeArray[baseINodeNumber].directDataBlocks[0], directoryEntries);
 
         if(directoryINode.countHardLinks == 0) {
-            updateParentsDirectory(-directoryINode.sizeOfFile);
+            updateParentsDirectory(-directoryINode.sizeOfFile, baseINodeNumber);
             updateMetaData(-directoryINode.sizeOfFile, -1);
         }
         else {
-            updateParentsDirectory(0);
+            updateParentsDirectory(0, baseINodeNumber);
             updateMetaData(0, -1);
         }
 
@@ -402,6 +411,10 @@ public:
         while(std::getline(pathStream, part, '/')) {
             partsOfPath.push_back(part);
         }
+        if(partsOfPath.size() < 2) {
+            std::cerr << "Wrong path" << std::endl;
+            return;
+        }
 
 
         unsigned int iNodeNumber = 0;
@@ -422,7 +435,7 @@ public:
         writeDirectoryDataBlock(iNodeArray[currentINodeNumber].directDataBlocks[0], directoryEntries);
 
         updateMetaData(0, 1);
-        updateParentsDirectory(0);
+        updateParentsDirectory(0, currentINodeNumber);
 
     }
 
@@ -449,11 +462,11 @@ public:
         writeDirectoryDataBlock(iNodeArray[baseINodeNumber].directDataBlocks[0], directoryEntries);
 
         if(iNode.countHardLinks == 0) {
-            updateParentsDirectory(-iNode.sizeOfFile);
+            updateParentsDirectory(-iNode.sizeOfFile, baseINodeNumber);
             updateMetaData(-iNode.sizeOfFile, -1);
         }
         else {
-            updateParentsDirectory(0);
+            updateParentsDirectory(0, baseINodeNumber);
             updateMetaData(0, -1);
         }
     }
@@ -478,7 +491,7 @@ public:
         }
 
         iNode.usedBlocksOfData += newUsedBlocksOfData;
-        updateParentsDirectory(bytes);
+        updateParentsDirectory(bytes, currentINodeNumber);
         updateMetaData(bytes, 0);
     }
 
@@ -498,17 +511,16 @@ public:
         }
 
         iNode.usedBlocksOfData -= BlocksToFree;
-        updateParentsDirectory(-bytes);
+        updateParentsDirectory(-bytes, currentINodeNumber);
         updateMetaData(-bytes, 0);
     }
 
     void showDiskUsage() {
-        std::cout << iNodeBitmap.countFree() << std::endl << dataBlockBitmap.countFree() << std::endl;
         unsigned int totalSize = superBlok.get_totalBytesSize();
         unsigned int physicalUsedSize = iNodeArray[0].sizeOfFile;
         unsigned int metaDataSize = superBlok.get_usedBytesSize() - iNodeArray[0].sizeOfFile;
         unsigned int logicalUsedSize = (sumDataBlocksInDescendants(0) + 1)* (DataBlockSize);
-        unsigned int physicalFreeSize = totalSize - physicalUsedSize;
+        unsigned int physicalFreeSize = totalSize - superBlok.get_usedBytesSize();
         unsigned int logicalFreeSize = dataBlockBitmap.countFree() * DataBlockSize;
 
         std::cout << "Total disk size: " << totalSize << " B" << std::endl;
@@ -611,7 +623,7 @@ int main(int argc, char *argv[]) {
                 std::string directoryName;
                 std::cout << "Enter the directory name: ";
                 std::cin >> directoryName;
-                virtualDisk.deleteDirectoryRecursively(directoryName);
+                virtualDisk.deleteDirectoryRecursively(directoryName, virtualDisk.currentINodeNumber);
                 break;
             }
             case 4: {
